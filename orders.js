@@ -69,6 +69,15 @@
     return "fa-credit-card";
   }
 
+  function getOrderPrice() {
+    const priceEl = document.getElementById("orderPrice");
+    if (!priceEl) return 0;
+    const priceText = priceEl.textContent || "0";
+    // Assuming format2 might add commas, remove them before parsing
+    const cleanPriceText = priceText.replace(/,/g, "");
+    return Number(cleanPriceText) || 0;
+  }
+
   function setOrderTimerUI() {
     const el = document.getElementById("orderTimer");
     if (!el) return;
@@ -175,7 +184,7 @@
     const amountIn = document.getElementById("orderAmountIn");
     const qtyIn = document.getElementById("orderQtyIn");
     const amount = Number(amountIn?.value || 0);
-    const qty = calcQtyFromAmount(amount, selectedAd.price);
+    const qty = calcQtyFromAmount(amount, getOrderPrice());
     if (qtyIn) qtyIn.value = qty > 0 ? window.P2P.utils.format2(qty) : "";
     validateOrder();
   }
@@ -185,7 +194,7 @@
     const amountIn = document.getElementById("orderAmountIn");
     const qtyIn = document.getElementById("orderQtyIn");
     const qty = Number(qtyIn?.value || 0);
-    const amount = calcAmountFromQty(qty, selectedAd.price);
+    const amount = calcAmountFromQty(qty, getOrderPrice());
     if (amountIn) amountIn.value = amount > 0 ? window.P2P.utils.format2(amount) : "";
     validateOrder();
   }

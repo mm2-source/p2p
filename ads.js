@@ -292,33 +292,56 @@
 
   function updateTotal() {
     const price = Number(document.getElementById("priceIn")?.value || 0);
-    const qty = Number(document.getElementById("quantityIn")?.value || 0);
+    const qty = Number(document.getElementById("adAmount")?.value || 0);
     const totalEl = document.getElementById("totalAmount");
-    if (!totalEl) return;
-    totalEl.textContent = fmt2(price > 0 && qty > 0 ? price * qty : 0);
+    
+    const total = price * qty;
+    console.log(`[HESAB] Price: ${price} * Qty: ${qty} = Total: ${total}`);
+
+    if (totalEl) {
+      totalEl.textContent = "EGP " + fmt2(total);
+    }
+  }
+function updateTotal() {
+    const price = Number(document.getElementById("priceIn")?.value || 0);
+    const qty = Number(document.getElementById("adAmount")?.value || 0);
+    const totalEl = document.getElementById("totalAmount");
+    
+    const total = price * qty;
+    // تحديث الإجمالي فوراً في الصفحة
+    if (totalEl) {
+      totalEl.textContent = "EGP " + (total > 0 ? total.toFixed(2) : "0.00");
+    }
   }
 
   function validatePublish() {
-    updateTotal();
+    updateTotal(); // تشغيل الحساب مع كل حركة
 
     const price = Number(document.getElementById("priceIn")?.value || 0);
-    const qty = Number(document.getElementById("quantityIn")?.value || 0);
+    const qty = Number(document.getElementById("adAmount")?.value || 0);
     const minL = Number(document.getElementById("minLimitIn")?.value || 0);
     const maxL = Number(document.getElementById("maxLimitIn")?.value || 0);
     const payment = (document.getElementById("selectedPaymentText")?.textContent || "").trim();
-
     const publishBtn = document.getElementById("publishBtn");
+
     if (!publishBtn) return;
 
-    const baseValid = price > 0 && qty > 0 && minL > 0 && maxL > 0 && minL <= maxL;
-    const maxNotBeyondTotal = baseValid ? maxL <= price * qty : false;
-    const paymentOk = payment && payment !== "اختر طريقة الدفع";
+    // الشروط المنطقية
+    const isPriceOk = price > 0;
+    const isQtyOk = qty > 0;
+    const isLimitsOk = minL > 0 && maxL > 0 && minL <= maxL;
+    const isPaymentOk = payment !== "" && !payment.includes("اختر");
 
-    const sellRequiresWallet = state.createMode === "sell";
-    const walletOk = !sellRequiresWallet || !!state.connectedAddress;
-
-    publishBtn.disabled = !(baseValid && maxNotBeyondTotal && paymentOk && walletOk);
+    // تفعيل أو تعطيل الزرار
+    publishBtn.disabled = !(isPriceOk && isQtyOk && isLimitsOk && isPaymentOk);
   }
+
+  // ربط أحداث الكتابة (Input Events) للحساب الفوري
+  document.getElementById("priceIn")?.addEventListener("input", validatePublish);
+  document.getElementById("adAmount")?.addEventListener("input", validatePublish);
+  document.getElementById("minLimitIn")?.addEventListener("input", validatePublish);
+  document.getElementById("maxLimitIn")?.addEventListener("input", validatePublish);
+  
 
   async function fillMaxFromWallet() {
     if (state.createMode !== "sell") return;
@@ -334,7 +357,7 @@
 
   function getCreateFormValues() {
     const price = Number(document.getElementById("priceIn")?.value || 0);
-    const qty = Number(document.getElementById("quantityIn")?.value || 0);
+    const qty = Number(document.getElementById("adAmount")?.value || 0);
     const minLimit = Number(document.getElementById("minLimitIn")?.value || 0);
     const maxLimit = Number(document.getElementById("maxLimitIn")?.value || 0);
     const paymentMethod = (document.getElementById("selectedPaymentText")?.textContent || "").trim();
@@ -649,7 +672,7 @@
   }
 
   function bindCreateInputs() {
-    ["priceIn", "quantityIn", "minLimitIn", "maxLimitIn"].forEach((id) => {
+    ["priceIn", "adAmount", "minLimitIn", "maxLimitIn"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.addEventListener("input", validatePublish);
     });
