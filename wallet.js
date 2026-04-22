@@ -136,37 +136,40 @@ window.P2P.depositUSDT = async function() {
 };
 // 7. دالة طلب السحب (خصم فوري وتسجيل طلب للإدمن)
 window.P2P.withdrawUSDT = async function() {
+  const btn = document.getElementById("withdrawBtn");
+  const bal = window.P2P.state.availableBalance || 0;
+
+  // 1. طلب المبلغ
+  const amount = prompt(`أدخل الكمية المراد سحبها (المتاح ${bal} USDT):`);
+  if (!amount || isNaN(amount) || amount <= 0) return;
+  if (parseFloat(amount) > bal) {
+    window.P2P.toast("الكمية المطلوبة أكبر من رصيدك المتاح");
+    return;
+  }
+
+  // 2. تفعيل الـ Spinner
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري المعالجة...`;
+  }
+
   try {
-    const bal = window.P2P.state.availableBalance || 0;
-    if (bal <= 0) {
-      window.P2P.toast("رصيدك الحالي 0، لا يمكن السحب");
-      return;
-    }
-
-    const amount = prompt(`أدخل الكمية المراد سحبها (المتاح: ${bal} USDT):`);
-    if (!amount || isNaN(amount) || amount <= 0) return;
-
-    if (parseFloat(amount) > bal) {
-      window.P2P.toast("الكمية المطلوبة أكبر من رصيدك المتاح");
-      return;
-    }
-
     const addr = window.tronWeb.defaultAddress.base58;
-    window.P2P.toast("جاري معالجة طلبك...");
-
     const userRef = window.db.collection("users").doc(addr);
+    
     await window.db.runTransaction(async (transaction) => {
       const userDoc = await transaction.get(userRef);
-      const currentBal = userDoc.exists ? (userDoc.data().availableBalance || 0) : 0;
-
+      if (!userDoc.exists) throw "المستخدم غير موجود";
+      
+      const currentBal = userDoc.data().availableBalance || 0;
       if (currentBal < parseFloat(amount)) throw "رصيد غير كافٍ";
 
-      // 1. خصم الرصيد من المستخدم في الفايربيز فوراً
-      transaction.update(userRef, { 
-        availableBalance: currentBal - parseFloat(amount) 
+      // خصم الرصيد من المستخدم
+      transaction.update(userRef, {
+        availableBalance: currentBal - parseFloat(amount)
       });
 
-      // 2. تسجيل الطلب في جدول withdrawals عشان تحول له يدوي
+      // تسجيل الطلب للأدمن في جدول withdrawals
       const withdrawRef = window.db.collection("withdrawals").doc();
       transaction.set(withdrawRef, {
         userAddress: addr,
@@ -176,10 +179,16 @@ window.P2P.withdrawUSDT = async function() {
       });
     });
 
-    window.P2P.toast("تم خصم الرصيد وتقديم طلب السحب بنجاح!");
+    window.P2P.toast("!تم خصم الرصيد وتقديم طلب السحب بنجاح");
   } catch (error) {
     console.error("Withdraw Error:", error);
     window.P2P.toast(error === "رصيد غير كافٍ" ? error : "فشلت العملية");
+    
+    // رجع الزرار لو حصل خطأ
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-arrow-up-from-bracket"></i> سحب`;
+    }
   }
 };
 // 7. الدالة الأساسية لربط المحفظة
@@ -194,7 +203,35 @@ window.P2P.connectWallet = async function connectWallet() {
       const addr = window.tronWeb.defaultAddress.base58;
       window.P2P.state.connectedAddress = addr;
       
-      window.P2P.subscribeUserProfile(addr);
+      // إعادة تعريف الدالة عشان نضيف مراقب السحب مع الكود الأصلي
+const originalSubscribe = window.P2P.subscribeUserProfile;
+window.P2P.subscribeUserProfile = function(addr) {
+    if (!addr) return;
+    
+    // 1. تشغيل الكود الأصلي للدالة (عشان مفيش حاجة تبوظ في السيستم)
+    if (typeof originalSubscribe === 'function') originalSubscribe(addr);
+
+    // 2. كود مراقب السحب (Spinner Logic)
+    const withdrawBtn = document.getElementById("withdrawBtn");
+    window.db.collection("withdrawals")
+      .where("userAddress", "==", addr)
+      .where("status", "==", "pending")
+      .onSnapshot((snap) => {
+        if (!withdrawBtn) return;
+        if (!snap.empty) {
+          // 🔴 في طلب pending
+          withdrawBtn.disabled = true;
+          withdrawBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> قيد المراجعة...`;
+        } else {
+          // ✅ مفيش طلبات
+          withdrawBtn.disabled = false;
+          withdrawBtn.innerHTML = `<i class="fa-solid fa-arrow-up-from-bracket"></i> سحب`;
+        }
+      });
+};
+
+// تشغيل الدالة الجديدة
+window.P2P.subscribeUserProfile(addr);
 
       const btn = document.getElementById("connectBtn");
       if (btn) {

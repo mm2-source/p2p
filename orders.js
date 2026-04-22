@@ -475,7 +475,10 @@
                   <div class="meta">الحالة: <b>${o.status}</b></div>
                   <div style="display:flex; gap:10px;">
                     ${showPayConfirm ? `<button class="actionBtn actionBtn--green" type="button" onclick="confirmPayment('${o.id}')">تم الدفع</button>` : ""}
-                    ${showRelease ? `<button class="actionBtn actionBtn--green" type="button" onclick="releaseOrder('${o.id}')">تحرير</button>` : ""}
+                    ${o.status === "pending_admin_release" 
+  ? `<button class="actionBtn actionBtn--green" type="button" disabled><i class="fa-solid fa-spinner fa-spin"></i> قيد المراجعة</button>`
+  : (showRelease ? `<button class="actionBtn actionBtn--green" type="button" onclick="releaseOrder('${o.id}')">تحرير</button>` : "")
+}
                     ${showCancel ? `<button class="actionBtn actionBtn--red" type="button" onclick="cancelOrder('${o.id}')">إلغاء</button>` : ""}
                   </div>
                 </div>
@@ -503,13 +506,34 @@
   }
 
   async function releaseOrder(orderId) {
+  // 1. تحديد الزرار اللي اتضغط عليه فوراً لعمل الـ Spinner
+  const btn = event?.currentTarget || document.querySelector(`button[onclick*="releaseOrder('${orderId}')"]`);
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري الطلب...`;
+  }
+
+  try {
+    // 2. تحديث الطلب للحالة المعلقة للأدمن
     await db.collection(ORDERS_COLLECTION).doc(orderId).update({
       released: true,
-      status: "completed",
-      releasedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      status: "pending_admin_release",
+      releaseRequestedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    window.P2P.toast("تم التحرير");
+
+    window.P2P.toast("تم إرسال طلب التحرير للإدارة للمراجعة");
+  } catch (e) {
+    console.error("Release Error:", e);
+    window.P2P.toast("فشلت العملية");
+    
+    // رجع الزرار لو حصل خطأ
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "تحرير";
+    }
   }
+}
 
   // Expose globals used by HTML handlers.
   window.openOrder = openOrder;
