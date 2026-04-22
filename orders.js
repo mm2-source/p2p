@@ -304,20 +304,25 @@
 
     const action = selectedAction || userActionForAdType(selectedAd.type);
 
-    // Balance verification: user cannot SELL unless balance is sufficient.
+    // Balance verification: التحقق من رصيد المنصة وليس المحفظة
     if (action === "sell") {
       const addr = window.P2P.state.connectedAddress;
       if (!addr) {
         btn.disabled = true;
         hint.style.display = "block";
-        hint.textContent = "اربط محفظتك للتحقق من الرصيد قبل البيع";
+        hint.textContent = "اربط محفظتك للتحقق من الرصيد";
         return;
       }
-      const bal = await window.P2P.getUSDTBalance(addr);
-      if (bal < qtyVal) {
+
+      // جلب رصيد المنصة الحقيقي
+      const userDoc = await db.collection("users").doc(addr).get();
+      const userData = userDoc.data() || {};
+      const platformBalance = Number(userData.availableBalance) || 0;
+      if (platformBalance < qtyVal) {
         btn.disabled = true;
         hint.style.display = "block";
-        hint.textContent = `رصيدك غير كافٍ. المتاح: ${window.P2P.utils.format2(bal)} USDT`;
+        hint.style.color = "red"; 
+        hint.textContent = `رصيدك في المنصة غير كافٍ. المتاح: ${platformBalance} USDT`;
         return;
       }
     }
@@ -363,8 +368,13 @@
         if (qty > available) throw new Error("Not enough available");
 
         if (action === "sell") {
-          const bal = await window.P2P.getUSDTBalance(addr);
-          if (bal < qty) throw new Error("Insufficient balance");
+          // التحقق من الرصيد داخل الترانزاكشن لضمان الأمان
+          const userRef = db.collection("users").doc(addr);
+          const userSnap = await tx.get(userRef);
+          const userData = userSnap.data() || {};
+          const platformBalance = userData.availableBalance || 0;
+
+          if (platformBalance < qty) throw new Error("Insufficient platform balance");
         }
 
         if (!buyerAddress || !sellerAddress || buyerAddress === sellerAddress) throw new Error("buyer_seller_invalid");
@@ -437,28 +447,31 @@
 
     const list = document.getElementById("ordersList");
     if (!list) return;
-
-    unsubOrders = db
-      .collection(ORDERS_COLLECTION)
-      .where("status", "==", window.P2P.state.ordersTab)
-      .onSnapshot((snap) => {
-        const mine = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((o) => o.userAddress === addr || o.merchantAddress === addr);
-
-        if (mine.length === 0) {
-          list.innerHTML = `<div class="meta" style="text-align:center; padding: 30px 0;">لا توجد طلبات</div>`;
-          return;
-        }
+      unsubOrders = db
+  .collection(ORDERS_COLLECTION)
+  .onSnapshot((snap) => {
+    const currentTab = window.P2P.state.ordersTab; // active, completed, canceled
+    const mine = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((o) => {
+          const isParticipant = o.userAddress === addr || o.merchantAddress === addr;
+          // فلترة بناءً على التبابة المختارة
+          if (currentTab === "active") return isParticipant && (o.status === "active" || o.status === "pending_admin_release");
+          if (currentTab === "completed") return isParticipant && o.status === "completed";
+          if (currentTab === "canceled") return isParticipant && o.status === "canceled";
+          return false;
+      });
 
         list.innerHTML = mine
           .sort((a, b) => (b.expiresAt || 0) - (a.expiresAt || 0))
           .map((o) => {
-            const isMerchant = o.merchantAddress === addr;
-            const actionLabel = o.userAction === "buy" ? "شراء" : "بيع";
+            // --- التعديل المظبوط لربط الأزرار بمنطق الموقع ---
+            const isBuyer = String(o.buyerAddress).toLowerCase() === String(addr).toLowerCase();
+            const isSeller = String(o.sellerAddress).toLowerCase() === String(addr).toLowerCase();
 
-            const showRelease = isMerchant && o.userAction === "buy" && o.paymentConfirmed && !o.released && o.status === "active";
-            const showPayConfirm = !isMerchant && o.userAction === "buy" && !o.paymentConfirmed && o.status === "active";
+            const actionLabel = o.userAction === "buy" ? "شراء" : "بيع";
+            const showPayConfirm = isBuyer && !o.paymentConfirmed && o.status === "active";
+            const showRelease = isSeller && o.paymentConfirmed && !o.released && o.status === "active";
             const showCancel = o.status === "active" && canCancelOrder(o, addr);
 
             return `
@@ -490,12 +503,14 @@
   }
 
   async function confirmPayment(orderId) {
+    if (!confirm("هل أنت متأكد أنك قمت بتحويل المبلغ؟")) return;
     await db.collection(ORDERS_COLLECTION).doc(orderId).update({
       paymentConfirmed: true,
+      status: "active", // تأكد إنها بتفضل نشطة أو حولها لـ paid لو السيستم بيدعم ده
       paymentConfirmedAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    window.P2P.toast("تم تأكيد الدفع");
-  }
+    window.P2P.toast("تم تأكيد الدفع، في انتظار تحرير البائع للعملات");
+}
 
   async function cancelOrder(orderId) {
     await db.collection(ORDERS_COLLECTION).doc(orderId).update({

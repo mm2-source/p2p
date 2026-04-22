@@ -169,14 +169,15 @@
     adsList.innerHTML = "";
 
     const wantedType = firestoreTypeForMarketTab(state.marketTab);
-
-    unsubMarketAds = db
-      // Avoid composite-index requirements during testing:
-      // fetch active ads then filter by type client-side.
-      .collection(ADS_COLLECTION)
-      .where("status", "==", "active")
-      .onSnapshot(
-        (snap) => {
+// البحث عن هذا الجزء في ads.js
+unsubMarketAds = db
+  .collection(ADS_COLLECTION)
+  .where("status", "==", "active") // التأكد أن الحالة نشطة فقط
+  .where("active", "==", true)     // إضافة هذا الشرط لزيادة الأمان
+  .onSnapshot(
+    (snap) => {
+      // ... باقي الكود كما هو
+    
           if (snap.empty) return renderMarketEmpty(adsList);
 
           const action = userActionForMarketTab(state.marketTab);
@@ -335,9 +336,7 @@ function updateTotal() {
     // تفعيل أو تعطيل الزرار
     publishBtn.disabled = !(isPriceOk && isQtyOk && isLimitsOk && isPaymentOk);
   }
-
-  // ربط أحداث الكتابة (Input Events) للحساب الفوري
-  document.getElementById("priceIn")?.addEventListener("input", validatePublish);
+    document.getElementById("priceIn")?.addEventListener("input", validatePublish);
   document.getElementById("adAmount")?.addEventListener("input", validatePublish);
   document.getElementById("minLimitIn")?.addEventListener("input", validatePublish);
   document.getElementById("maxLimitIn")?.addEventListener("input", validatePublish);
@@ -348,9 +347,11 @@ function updateTotal() {
     const addr = state.connectedAddress;
     if (!addr) return toast("اربط المحفظة أولاً");
     if (typeof P2P.getUSDTBalance !== "function") return toast("تعذر قراءة رصيد المحفظة");
-    const bal = await P2P.getUSDTBalance(addr);
-    const qtyIn = document.getElementById("quantityIn");
-    if (qtyIn) qtyIn.value = fmt2(bal);
+    // اسحب الرصيد من الداتا بيز بتاعة الموقع
+    const userSnap = await db.collection("users").doc(addr).get();
+    const bal = userSnap.data()?.availableBalance || 0; 
+    const qtyIn = document.getElementById("adAmount"); // تأكد من اسم الـ ID عندك
+     if (qtyIn) qtyIn.value = bal;
     if (typeof P2P.refreshWalletBalanceUI === "function") await P2P.refreshWalletBalanceUI();
     validatePublish();
   }
@@ -380,7 +381,44 @@ function updateTotal() {
   function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
   }
+function subscribeMyAds() {
+    const db = getDb();
+    const addr = state.connectedAddress;
 
+    // تعريف المتغيرات هنا عشان الكود يشوفهم
+    const activeCount = document.getElementById("myAdsActiveCount");
+    const list = document.getElementById("myAdsList");
+
+    if (!list || !db || !addr) return;
+
+    if (typeof unsubMyAds === "function") unsubMyAds();
+
+    unsubMyAds = db
+      .collection(ADS_COLLECTION)
+      .where("merchantAddress", "==", addr)
+      .onSnapshot(
+        (snap) => {
+          const ads = snap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+          
+          // الفلتر المظبوط
+          const activeAds = ads.filter((a) => a.status === "active" && a.active === true); 
+          
+          if (activeCount) activeCount.textContent = String(activeAds.length);
+
+          if (activeAds.length === 0) {
+            list.innerHTML = "";
+            renderMyAdsEmpty(true);
+            return;
+          }
+
+          renderMyAdsEmpty(false);
+          renderMyAdsList(activeAds);
+        },
+        (err) => {
+          console.error("[ads] My Ads snapshot error", err);
+        }
+      );
+  }
   /**
    * Writes ad to Firestore `ads`, verifies the document, clears stale error state on success.
    * Retries once on permission-denied (e.g. rules just finished deploying).
@@ -404,9 +442,39 @@ function updateTotal() {
 
     const { price, qty, minLimit, maxLimit, paymentMethod } = getCreateFormValues();
 
-    if (!(price > 0 && qty > 0 && minLimit > 0 && maxLimit > 0 && minLimit <= maxLimit)) {
-      return toast("يرجى تعبئة السعر والكمية والحدود بشكل صحيح");
+// --- التعديل الجديد لمنع النشر بالرصيد الوهمي ---
+    if (state.createMode === "sell") {
+        try {
+            // جلب رصيد المستخدم الحقيقي من Firestore قبل أي خطوة
+            const userDoc = await db.collection("users").doc(state.connectedAddress).get();
+            const userData = userDoc.data() || {};
+            const realAvailable = userData.availableBalance || 0; // الرصيد المتاح الفعلي
+
+            // لو الكمية المطلوبة أكبر من المتاح، طلع الرسالة ووقف
+            if (qty > realAvailable) {
+                btn.disabled = false;
+                btn.classList.remove("is-loading");
+                btn.innerHTML = originalHTML;
+                return toast(`عفواً، رصيدك المتاح (${realAvailable} USDT) لا يكفي لنشر هذا الإعلان.`);
+            }
+            
+            // لو الرصيد صفر أصلاً
+            if (realAvailable <= 0) {
+                 btn.disabled = false;
+                 btn.classList.remove("is-loading");
+                 btn.innerHTML = originalHTML;
+                 return toast("رصيدك الحالي صفر، لا يمكنك نشر إعلان بيع.");
+            }
+        } catch (err) {
+            console.error("Error checking balance:", err);
+            return toast("حدث خطأ أثناء التحقق من الرصيد.");
+        }
     }
+    // ------------------------------------------------
+
+if (!(price > 0 && qty > 0 && minLimit > 0 && maxLimit > 0 && minLimit <= maxLimit)) {
+  return toast("يرجى تعبئة السعر والكمية والحدود بشكل صحيح");
+}
     if (!paymentMethod || paymentMethod === "اختر طريقة الدفع") return toast("يرجى اختيار طريقة الدفع");
     if (maxLimit > price * qty) return toast("الحد الأقصى لا يمكن أن يتجاوز إجمالي قيمة الإعلان");
 
@@ -431,6 +499,7 @@ function updateTotal() {
       asset: "USDT",
       merchantAddress: state.connectedAddress,
       status: "active",
+      active: true, // <--- زود السطر ده هنا بالظبط
     };
 
     const commitOnce = async (isRetry) => {
@@ -721,4 +790,3 @@ function updateTotal() {
     validatePublish();
   });
 })();
-
