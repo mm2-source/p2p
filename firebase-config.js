@@ -28,3 +28,41 @@ if (firebase.database) {
 if (firebase.storage) {
   window.storage = firebase.storage();
 }
+
+
+window.P2P = window.P2P || {};
+window.P2P.toast = function(msg) {
+    // التحقق من النجاح أو الفشل بدقة أكبر
+    // لو الرسالة فيها "فشل" أو "خطأ" تظهر حمراء فوراً مهما كان باقي الكلام
+    const isError = msg.includes('فشل') || msg.includes('خطأ') || msg.includes('عفواً');
+    
+    // النجاح هو أي شيء غير الأخطاء، أو نحدد كلمات معينة
+    const isSuccess = !isError && (msg.includes('تم') || msg.includes('بنجاح') || msg.includes('جاري'));
+
+    const Toast = Swal.mixin({
+        toast: true,
+        position: 'top',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        // الألوان الهادئة (Pastel) بناءً على طلبك السابق
+        background: isSuccess ? 'rgba(232, 245, 233, 0.9)' : 'rgba(255, 235, 238, 0.9)',
+        color: isSuccess ? '#1b5e20' : '#b71c1c', // نص داكن للوضوح
+        didOpen: (toast) => {
+            toast.style.backdropFilter = 'blur(15px)';
+            toast.style.borderRadius = '16px';
+            toast.style.border = isSuccess ? '1px solid rgba(76, 175, 80, 0.2)' : '1px solid rgba(239, 83, 80, 0.2)';
+            
+            const progressBar = toast.querySelector('.swal2-timer-progress-bar');
+            if (progressBar) {
+                progressBar.style.backgroundColor = isSuccess ? '#4caf50' : '#f44336';
+            }
+        }
+    });
+
+    Toast.fire({
+        // icon: 'success' تظهر ✓ | icon: 'error' تظهر X
+        icon: isSuccess ? 'success' : 'error',
+        title: `<span style="font-size: 15px; font-weight: 700;">${msg}</span>`
+    });
+};

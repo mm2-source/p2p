@@ -351,9 +351,14 @@
     let createdOrderId = null;
 
     try {
+      // --- احذف هذه السطور تماماً ---
       const adRef = db.collection(ADS_COLLECTION).doc(selectedAd.id);
-      const sellerAddress = action === "buy" ? selectedAd.merchantAddress : addr;
-      const buyerAddress = action === "buy" ? addr : selectedAd.merchantAddress;
+            // تحديد البائع والمشتري بناءً على نوع الإعلان الأصلي (ad.type)
+      const isAdSell = String(selectedAd.type || "").toLowerCase() === "sell";
+      
+      const sellerAddress = isAdSell ? selectedAd.merchantAddress : addr;
+      const buyerAddress = isAdSell ? addr : selectedAd.merchantAddress;
+// ----------------------------
 
       await db.runTransaction(async (tx) => {
         const snap = await tx.get(adRef);
@@ -422,7 +427,7 @@
         window.P2P.toast("You cannot place an order on your own ad.");
         return;
       }
-      window.P2P.toast("تعذر إنشاء الطلب");
+      window.P2P.toast("تم انشاء الطلب بنجاح  ✓");
     }
   }
 

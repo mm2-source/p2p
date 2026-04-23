@@ -99,61 +99,60 @@ db.collection("Orders")
   });
 
 // الدالة المحدثة للتحويل وتتضمن خصم الرصيد من الحقلين لضمان تحديث الموقع
+// دالة التحرير المصححة
+// دالة التحرير المصححة
 async function approveRelease(id, buyerAddress, usdtAmount) {
-  const isReady = await checkTronLink();
-  if (!isReady) return;
-  if (!buyerAddress) { alert("خطأ: عنوان المشتري غير موجود!"); return; }
+    // السطر ده لو مظهرش في الكنسول يبقى الزرار مش واصل للدالة
+    console.log("%c [ADMIN] بدء التحرير للطلب: " + id, "color: white; background: blue; padding: 5px;");
 
-  if(confirm(`تنبيه: سيتم الآن إرسال ${usdtAmount} USDT للمشتري. هل أنت متأكد؟`)) {
     try {
-        const contractAddr = await getUSDTContractAddress();
-        const contract = await window.tronWeb.contract().at(contractAddr);
-        const decimals = 1e6;
+        const orderRef = db.collection("Orders").doc(id);
+        const orderSnap = await orderRef.get();
+        const orderData = orderSnap.data();
+
+        // الحل: الخصم دايماً من sellerAddress (الشخص اللي معاه العملات)
+        const actualSellerUID = orderData.sellerAddress; 
         
-        // تنفيذ النقل الفعلي على شبكة ترون
-        const tx = await contract.transfer(buyerAddress, usdtAmount * decimals).send();
+                // تحديد البائع الحقيقي بناءً على نوع الإعلان الأصلي
+        let actualSellerUID = null;
         
-        if (tx) {
-            // أ. جلب بيانات الطلب لمعرفة رقم الإعلان المرتبط به (adId)
-            const orderRef = db.collection("Orders").doc(id);
-            const orderSnap = await orderRef.get();
-            const orderData = orderSnap.data();
-            const adId = orderData.adId; // المعرف الذي يربط الطلب بالإعلان
-            const sellerAddress = orderData.merchantAddress; // عنوان البائع للخصم منه
+        if (String(orderData.adType || "").toLowerCase() === "sell") {
+            actualSellerUID = orderData.merchantAddress;     // إعلان بيع → صاحب الإعلان هو البائع
+        } else if (String(orderData.adType || "").toLowerCase() === "buy") {
+            actualSellerUID = orderData.userAddress || orderData.sellerAddress; // إعلان شراء → اللي نفذ هو البائع
+        }
+        
+        console.log("🕵️ البائع الحقيقي (UID):", actualSellerUID);
+        console.log("💰 المبلغ المراد خصمه:", usdtAmount);
 
-            // ب. تحديث الطلب ليصبح "مكتمل" ويختفي من قائمة الانتظار
-            await orderRef.update({
-              status: "completed",
-              released: true, 
-              releaseTx: tx,
-              releasedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+        if (confirm(`تحرير ${usdtAmount} USDT للمشتري؟ الخصم سيتم من البائع.`)) {
+            const contractAddr = await getUSDTContractAddress();
+            const contract = await window.tronWeb.contract().at(contractAddr);
+            
+            // تحويل USDT الحقيقي للمشتري
+            const tx = await contract.transfer(buyerAddress, usdtAmount * 1e6).send();
+            
+            if (tx) {
+                console.log("✅ نجح التحويل على الشبكة: ", tx);
 
-            // ج. تحديث الإعلان في مجموعة "ads" ليختفي من الموقع
-            if (adId) {
-                await db.collection("ads").doc(adId).update({
-                    status: "completed", // تغيير الحالة إلى مكتمل
-                    active: false,       // إلغاء تفعيل العرض في الصفحة الرئيسية
-                    availableAmount: 0    // تصفير الكمية المتاحة
-                });
-                console.log(`تم إغلاق الإعلان رقم: ${adId}`);
+                // 1. تحديث حالة الطلب
+                await orderRef.update({ status: "completed", released: true });
+
+                // 2. الخصم من رصيد البائع (الطرف التاني في العملية)
+                if (actualSellerUID) {
+                    await db.collection("users").doc(actualSellerUID).update({
+                        availableBalance: firebase.firestore.FieldValue.increment(-Number(usdtAmount)),
+                        usdtBalance: firebase.firestore.FieldValue.increment(-Number(usdtAmount))
+                    });
+                    console.log("📉 تم خصم الرصيد من البائع بنجاح.");
+                } else {
+                    console.error("❌ فشل الخصم: sellerAddress مش موجود في الأوردر!");
+                }
+                alert("تم التحرير والخصم بنجاح.");
             }
-
-            // د. خصم الرصيد من التاجر (البائع) في مجموعة users من الحقلين لضمان التحديث
-            if (sellerAddress) {
-                await db.collection("users").doc(sellerAddress).update({
-                    // خصم من الحقل الذي يعرضه الموقع (الـ 100 الظاهرة في صورتك)
-                    availableBalance: firebase.firestore.FieldValue.increment(-usdtAmount),
-                    // وخصم من حقل الرصيد الإجمالي
-                    usdtBalance: firebase.firestore.FieldValue.increment(-usdtAmount)
-                });
-            }
-
-            alert(`تم التحرير بنجاح! تم تحديث الطلب وإخفاء الإعلان وخصم الرصيد من الموقع.`);
         }
     } catch (err) {
-        console.error("Error:", err);
-        alert("فشلت العملية: " + (err.message || "تأكد من توفر رصيد كافي"));
+        console.error("❌ خطأ فني:", err);
+        alert("فشلت العملية، راجع الكنسول.");
     }
-  }
 }

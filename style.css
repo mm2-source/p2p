@@ -1136,3 +1136,23 @@ input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin
   .price{ font-size: 24px; }
   .actionBtn{ padding: 10px 14px; }
 }
+/* تحسين ظهور مكتبة SweetAlert */
+.swal2-popup.swal2-toast {
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
+    padding: 10px 15px !important;
+}
+
+/* ضبط أيقونة النجاح (الصح) */
+.swal2-icon.swal2-success {
+    border-color: #4caf50 !important;
+    color: #4caf50 !important;
+    scale: 0.8; /* تصغير بسيط لتناسب الـ Compact */
+}
+
+.swal2-icon.swal2-success [class^=swal2-success-line] {
+    background-color: #4caf50 !important;
+}
+
+.swal2-icon.swal2-success .swal2-success-ring {
+    border: .25em solid rgba(76, 175, 80, 0.2) !important;
+}
